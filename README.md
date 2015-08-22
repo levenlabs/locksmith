@@ -42,6 +42,25 @@ $ echo -n '{"Hostname": "test@yourremote.com"}' | openssl dgst -sha256 -hmac "yo
 10ded103a220f14f02f9ee106a32348b1d0105cc8c40aa1c99ef1f115542a2ff
 ```
 
+For `/list` and `/revoke` an optional `--admin-key` can be sent which should differ from `--key`. For those methods
+you should instead use that key. By default `--admin-key` defaults to `--key`.
+
+## OCSP
+
+In addition to generating certs, locksmith can also be a OCSP responder. In your cfssl config, add
+```
+"ocsp_url": "https://locksmithIP:port/ocsp-verify",
+```
+to each profile you want to use ocsp verification. You'll also need to have a responses file and pass it to locksmith
+via `--ocsp-responses-file`. The responses file should be base64-encoded responses separated by a space (or newline)
+character. By default, generated certificates are NOT automatically added to the ocsp responses file. To add them
+automatically, pass `--auto-ocsp-sign` to locksmith. The `/ocsp-verify` endpoint does not accept an HMAC signature.
+
+In order to sign OCSP responses in cfssl you will need to generate a OCSP certificate/key and pass it to cfssl as
+`-responder` and `-responder-key`.
+
+Todo: add instructions for how to incorporate this into OpenSSL server
+
 ## Endpoints
 
 ### /generate
@@ -50,7 +69,7 @@ Generates a new certificate
 
 #### Params
 * `hostname` [string] the hostname to set as the CN for the certificate
-* `rimestamp` [int] the current unix timestamp in seconds
+* `timestamp` [int] the current unix timestamp in seconds
 * `profile` [string|optional] the profile to send to cfssl
 * `request` [hash|optional] the csr request to send to cfssl (optional if `--default-name-file` was specified)
     * `CN` [string|optional] common name for the certificate (defaults to `hostname`)
@@ -60,4 +79,33 @@ Generates a new certificate
 
 #### Result
 
-Returns a ovpn file to save as `client.conf` (on Linux) and use with OpenVPN client
+Returns the contents of a new ovpn file to save as `client.conf` (on Linux) and use with OpenVPN client.
+*This does not return json*
+
+
+### /list
+
+Returns a list of previously generated certificates (assuming you passed `--certs-file`)
+
+#### Params
+* `timestamp` [int] the current unix timestamp in seconds
+
+#### Result
+
+Returns an array of certificates. Each certificate looks like:
+```
+{"hostname":"laptop","remoteAddr":"10.0.0.1","generated_at":1440113442,"certificate":"MIIEWD..."}
+
+
+### /revoke
+
+Generates a new certificate
+
+#### Params
+* `certificate` [string] base64 of certificate der, or pem-encoded certificate
+* `reason` [int] the reason code for the revocation
+* `timestamp` [int] the current unix timestamp in seconds
+
+#### Result
+
+Returns `{"success": true}` or non-200 status code.
