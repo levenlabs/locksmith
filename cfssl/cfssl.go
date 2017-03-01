@@ -9,10 +9,8 @@ import (
 	"github.com/levenlabs/locksmith/config"
 	"io/ioutil"
 	"log"
-	"math"
 	"net/http"
 	"regexp"
-	"time"
 )
 
 var defaultName *csrName
@@ -63,6 +61,13 @@ type GenerateRequest struct {
 	Timestamp int64      `json:"timestamp,omitempty"`
 }
 
+type OCSPSignRequest struct {
+	Certificate string `json:"certificate"`
+	Status      string `json:"status,omitempty"`
+	Reason      int    `json:"reason,omitempty"`
+	RevokedAt   string `json:"revoked_at,omitempty"`
+}
+
 func init() {
 	if config.CFSSLAddr == "" {
 		log.Fatal("--cfssl-addr must be sent")
@@ -87,14 +92,6 @@ func GenerateCert(req *GenerateRequest, remoteAddr string) (cert string, key str
 		err = errors.New("Invalid hostname sent")
 		return
 	}
-	if config.TimestampDrift > 0 {
-		now := time.Now().UTC().Unix()
-		diff := math.Abs(float64(now - req.Timestamp))
-		if diff > config.TimestampDrift {
-			err = errors.New("Timestamp sent is outside of drift range")
-			return
-		}
-	}
 	// we can't check if Key == nil because Key isn't a pointer but we can check for size not existing
 	if req.Request.Key.Size == 0 {
 		req.Request.Key = *defaultKey
@@ -117,7 +114,6 @@ func GenerateCert(req *GenerateRequest, remoteAddr string) (cert string, key str
 	r.Request = req.Request
 	r.Profile = req.Profile
 	r.RemoteAddress = remoteAddr
-	r.Token = config.CFSSLKey
 	r.Timestamp = req.Timestamp
 
 	j, err := json.Marshal(r)
@@ -137,6 +133,28 @@ func GenerateCert(req *GenerateRequest, remoteAddr string) (cert string, key str
 
 	if key, ok = res.Result["private_key"].(string); !ok {
 		err = fmt.Errorf("Missing private_key from newcert req %v", res.Result)
+		return
+	}
+	return
+}
+
+func SignOCSPResponse(req *OCSPSignRequest) (resp string, err error) {
+	if req.Certificate == "" {
+		err = errors.New("Invalid certificate sent")
+		return
+	}
+	j, err := json.Marshal(req)
+	if err != nil {
+		return
+	}
+	res, err := request("/api/v1/cfssl/ocspsign", j)
+	if err != nil {
+		return
+	}
+
+	var ok bool
+	if resp, ok = res.Result["ocspResponse"].(string); !ok {
+		err = fmt.Errorf("Missing certificate from ocspsign req %v", res.Result)
 		return
 	}
 	return
